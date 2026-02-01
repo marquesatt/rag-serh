@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from typing import Optional
 from vertexai.generative_models import (
     SafetySetting, HarmCategory, HarmBlockThreshold,
-    Content, Part, ToolConfig, FunctionCallingConfig
+    Content, Part
 )
 
 load_dotenv()
@@ -104,19 +104,10 @@ def init_vertex_ai():
                 )
             )
             
-            # Configuração para FORÇAR o modelo a usar o RAG tool
-            # Mode.ANY = modelo DEVE fazer function calls (buscar no corpus)
-            tool_config = ToolConfig(
-                function_calling_config=FunctionCallingConfig(
-                    mode=FunctionCallingConfig.Mode.ANY  # 🔥 FORÇA uso do RAG
-                )
-            )
-            
-            # inicializa modelo COM TOOL CONFIG FORÇADO
+            # inicializa modelo com RAG tool
             model = GenerativeModel(
                 model_name="gemini-2.0-flash",
                 tools=[tool],
-                tool_config=tool_config,  # ✅ Força função ser chamada
                 system_instruction="""Você é um assistente especializado em SERH (Sistema Eletrônico de Recursos Humanos).
 
 INSTRUÇÕES CRÍTICAS:
@@ -128,7 +119,7 @@ INSTRUÇÕES CRÍTICAS:
 
 Tom: Profissional, amigável e direto. Respostas naturais e conversacionais."""
             )
-            print(f"✓ Modelo Gemini pronto com RAG forçado (Mode.ANY)")
+            print(f"✓ Modelo Gemini pronto com RAG tool")
             return True
         else:
             print("✗ NENHUM CORPUS ENCONTRADO NO GOOGLE CLOUD")
