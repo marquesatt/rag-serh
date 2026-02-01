@@ -14,8 +14,10 @@ PORT = int(os.getenv("PORT", 8000))
 
 # Configura credenciais do Google Cloud de forma segura
 def setup_google_credentials():
-    """Setup Google Cloud credentials de forma segura"""
-    # Tenta variável de ambiente primeiro (produção - Railway)
+    """Setup Google Cloud credentials usando gcloud CLI"""
+    import subprocess
+    
+    # Tenta variável de ambiente (produção - Railway)
     creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if creds_json:
         try:
@@ -23,10 +25,28 @@ def setup_google_credentials():
             with open(creds_file, "w") as f:
                 f.write(creds_json)
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_file
-            print(f"✓ Credenciais carregadas da variável de ambiente")
-            return True
+            print(f"✓ Credenciais salvas em {creds_file}")
+            
+            # Autentica com gcloud CLI
+            result = subprocess.run(
+                ["gcloud", "auth", "activate-service-account", f"--key-file={creds_file}"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                print(f"✓ gcloud CLI autenticado com sucesso")
+                return True
+            else:
+                print(f"✗ Erro ao autenticar gcloud: {result.stderr}")
+                return False
+        except FileNotFoundError:
+            print("✗ gcloud CLI não encontrado. Certifique-se que está instalado no Dockerfile")
+            return False
         except Exception as e:
-            print(f"✗ Erro ao processar variável de ambiente: {e}")
+            print(f"✗ Erro ao processar credenciais: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     # Tenta arquivo local (desenvolvimento)
     local_creds = "./serhrag-d481c39ed083.json"
@@ -35,14 +55,9 @@ def setup_google_credentials():
         print(f"✓ Credenciais carregadas do arquivo local")
         return True
     
-    # Também tenta em /app (railway container)
-    railway_creds = "/app/serhrag-d481c39ed083.json"
-    if os.path.exists(railway_creds):
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = railway_creds
-        print(f"✓ Credenciais carregadas do Railway")
-        return True
-    
-    print("✗ Arquivo de credenciais não encontrado")
+    print("✗ Nenhuma credencial encontrada")
+    print("   Para Railway: configure GOOGLE_CREDENTIALS_JSON nas variáveis de ambiente")
+    print("   Para desenvolvimento local: adicione serhrag-d481c39ed083.json")
     return False
 
 setup_google_credentials()
