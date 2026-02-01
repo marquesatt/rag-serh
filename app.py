@@ -107,32 +107,13 @@ def create_serh_agent():
         "max_output_tokens": 1024,
     }
     
-    # Etapa 2: Instruções do sistema
-    system_instruction = """Você é um assistente especializado em SERH.
-
-Ajude usuários com dúvidas sobre:
-- Processos e procedimentos de RH
-- Auxílio e benefícios
-- Férias, licenças e afastamentos  
-- Frequência e controle de ponto
-- Dados pessoais e documentação
-
-INSTRUÇÕES:
-1. Use a ferramenta 'search_serh_corpus' para consultar documentos quando apropriado
-2. Seja sempre profissional, educado e transparente
-3. Se não souber, recomende contato direto com setor de RH
-4. Mantenha contexto da conversa anterior
-5. Respostas devem ser claras e acessíveis
-
-Tom: Profissional mas amigável, sempre pronto para ajudar."""
-    
     # Etapa 3: Criar o agente
-    # Padrão oficial: agent_engines.LanggraphAgent(model, tools, system_instruction)
+    # Para versão 1.43.0 do vertexai, remover system_instruction 
+    # (será adicionado via prompt customizado se necessário)
     agent = agent_engines.LanggraphAgent(
         model=model,
         model_kwargs=model_kwargs,
         tools=[search_serh_corpus],  # Nossa ferramenta Python
-        system_instruction=system_instruction,
     )
     
     return agent
