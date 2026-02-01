@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from typing import Optional
 from vertexai.generative_models import (
     SafetySetting, HarmCategory, HarmBlockThreshold,
-    Content, Part, ToolConfig
+    Content, Part
 )
 
 load_dotenv()
@@ -266,11 +266,6 @@ def chat(msg: Message):
                 "top_k": 40,
                 "max_output_tokens": 1024,
             },
-            tool_config=ToolConfig(
-                function_calling_config=ToolConfig.FunctionCallingConfig(
-                    mode=ToolConfig.FunctionCallingConfig.Mode.AUTO
-                )
-            ),
             safety_settings=[
                 SafetySetting(
                     category=HarmCategory.HARM_CATEGORY_HARASSMENT,
