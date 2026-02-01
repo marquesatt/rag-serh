@@ -379,20 +379,29 @@ def chat(msg: Message):
         
         history = conversations[conversation_id]
         
-        # DEBUG
-        print(f"\n{'='*60}")
-        print(f"CONVERSATION_ID: {conversation_id}")
-        print(f"Histórico ANTES: {len(history)} items")
-        for i, content in enumerate(history):
-            text_preview = content.parts[0].text[:50] if content.parts else ""
-            print(f"  [{i}] {content.role}: {text_preview}...")
-        print(f"Nova mensagem: {msg.text}")
-        print(f"{'='*60}\n")
-        
         # Constrói conversa completa: histórico + nova mensagem do usuário
-        # generate_content() espera lista de Content objects
-        full_conversation = list(history)  # Cópia do histórico
+        full_conversation = list(history)
         full_conversation.append(Content(role="user", parts=[Part.from_text(msg.text)]))
+        
+        # DEBUG DETALHADO
+        print(f"\n{'='*70}")
+        print(f"🔹 CHAT REQUEST - Conversation ID: {conversation_id}")
+        print(f"{'='*70}")
+        print(f"📝 Histórico ANTES: {len(history)} items")
+        for i, content in enumerate(history):
+            text_preview = content.parts[0].text[:60] if content.parts else ""
+            print(f"   [{i}] [{content.role.upper()}]: {text_preview}...")
+        
+        print(f"\n📥 Nova mensagem: {msg.text}")
+        
+        print(f"\n📤 CONVERSA COMPLETA sendo enviada ao modelo ({len(full_conversation)} items):")
+        for i, content in enumerate(full_conversation):
+            text_preview = content.parts[0].text[:60] if content.parts else ""
+            role_display = "USER" if content.role == "user" else "MODEL"
+            print(f"   [{i}] [{role_display}]: {text_preview}...")
+        
+        print(f"\n⏳ Aguardando resposta do modelo...")
+        print(f"{'='*70}\n")
         
         # Chama modelo COM HISTÓRICO COMPLETO como primeiro argumento
         response = model.generate_content(
@@ -430,16 +439,21 @@ def chat(msg: Message):
         # ✅ Salva model response no histórico
         conversations[conversation_id].append(Content(role="model", parts=[Part.from_text(response_text)]))
         
-        history = conversations[conversation_id]  # Atualizar referência
+        history = conversations[conversation_id]
         
         # DEBUG
-        print(f"{'='*60}")
-        print(f"Histórico DEPOIS: {len(history)} items")
+        print(f"{'='*70}")
+        print(f"✅ RESPONSE RECEIVED")
+        print(f"{'='*70}")
+        print(f"📤 Histórico DEPOIS: {len(history)} items")
         for i, content in enumerate(history):
-            text_preview = content.parts[0].text[:50] if content.parts else ""
-            print(f"  [{i}] {content.role}: {text_preview}...")
-        print(f"Resposta do modelo: {response_text[:100]}...")
-        print(f"{'='*60}\n")
+            text_preview = content.parts[0].text[:60] if content.parts else ""
+            role_display = "USER" if content.role == "user" else "MODEL"
+            print(f"   [{i}] [{role_display}]: {text_preview}...")
+        
+        print(f"\n📋 Resposta do modelo ({len(response_text)} chars):")
+        print(f"   {response_text[:100]}...")
+        print(f"{'='*70}\n")
         
         # Detecciona se pediu clarificação
         is_asking_clarification = any(keyword in response_text.lower() for keyword in [
