@@ -288,7 +288,10 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # Armazena ChatSession por conversation_id para manter contexto
+# Documentação Vertex AI: ChatSession com send_message() é a abordagem recomendada
+# para aplicações interativas com manutenção de histórico
 chat_sessions = {}  # {conversation_id: ChatSession}
+conversation_states = {}  # {conversation_id: {"session_created": timestamp, "message_count": int}}
 
 
 class Message(BaseModel):
@@ -316,11 +319,14 @@ def health():
 
 @app.get("/conversation/{conversation_id}")
 def get_conversation(conversation_id: str):
-    """Retorna histórico de uma conversa específica"""
+    """Retorna info sobre uma conversa específica"""
     if conversation_id not in chat_sessions:
         return {"error": "conversa não encontrada"}, 404
     
     session = chat_sessions[conversation_id]
+    state = conversation_states.get(conversation_id, {})
+    
+    # Extrai histórico da sessão
     history = [
         {
             "role": content.role,
@@ -332,7 +338,8 @@ def get_conversation(conversation_id: str):
     return {
         "conversation_id": conversation_id,
         "history": history,
-        "message_count": len(history)
+        "message_count": len(history),
+        "session_info": state
     }
 
 
@@ -343,18 +350,21 @@ def delete_conversation(conversation_id: str):
         return {"error": "conversa não encontrada"}, 404
     
     del chat_sessions[conversation_id]
+    if conversation_id in conversation_states:
+        del conversation_states[conversation_id]
     return {"status": "conversa deletada"}
 
 
 @app.get("/conversations")
 def list_conversations():
-    """Lista todas as conversas em memória com contagem de mensagens"""
+    """Lista todas as conversas em memória"""
     return {
         "total_conversations": len(chat_sessions),
         "conversations": [
             {
                 "conversation_id": cid,
-                "message_count": len(session.history)
+                "message_count": len(session.history),
+                "info": conversation_states.get(cid, {})
             }
             for cid, session in chat_sessions.items()
         ]
@@ -374,13 +384,24 @@ def chat(msg: Message):
         conversation_id = msg.conversation_id or str(uuid.uuid4())
         
         if conversation_id not in chat_sessions:
-            # Cria nova ChatSession - ChatSession mantém histórico automaticamente
+            # Cria nova ChatSession para esta conversa
+            # ChatSession é context-aware: mantém histórico automaticamente
+            # e passa para modelo em cada send_message()
+            # Referência: https://cloud.google.com/docs/generative-ai/get-started-python
             chat_sessions[conversation_id] = model.start_chat()
+            conversation_states[conversation_id] = {
+                "created_at": str(__import__('datetime').datetime.now()),
+                "message_count": 0
+            }
         
         session = chat_sessions[conversation_id]
+        state = conversation_states[conversation_id]
         
-        # send_message() automaticamente passa o histórico da sessão ao modelo
-        # ChatSession é context-aware por padrão
+        # send_message() do ChatSession:
+        # - Automaticamente passa session.history ao modelo (context-aware)
+        # - Atualiza session.history com user message e model response
+        # - Não requer passar history manualmente
+        # - Melhor que generate_content() para conversas multi-turn
         response = session.send_message(
             msg.text,
             generation_config={
@@ -411,8 +432,8 @@ def chat(msg: Message):
         
         response_text = response.text
         
-        # ChatSession.history contém [user_message, model_response, user_message, model_response, ...]
-        # É atualizado automaticamente após send_message()
+        # Atualiza contador
+        state["message_count"] += 2  # user + model
         
         # Detecciona se o bot pediu clarificação
         is_asking_clarification = any(keyword in response_text.lower() for keyword in [
@@ -426,7 +447,8 @@ def chat(msg: Message):
             "conversation_id": conversation_id,
             "corpus": corpus.display_name,
             "asking_clarification": is_asking_clarification,
-            "history_length": len(session.history)
+            "history_length": len(session.history),
+            "message_count": state["message_count"]
         }
     except Exception as e:
         import traceback
