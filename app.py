@@ -287,11 +287,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Armazena ChatSession por conversation_id para manter contexto
-# Documentação Vertex AI: ChatSession com send_message() é a abordagem recomendada
-# para aplicações interativas com manutenção de histórico
-chat_sessions = {}  # {conversation_id: ChatSession}
-conversation_states = {}  # {conversation_id: {"session_created": timestamp, "message_count": int}}
+# Armazena histórico de conversas em memória - CONTROLE MANUAL
+# Formato: {conversation_id: [Content(role="user"|"model", parts=[Part(text="...")])]}
+conversations = {}
 
 
 class Message(BaseModel):
@@ -319,54 +317,47 @@ def health():
 
 @app.get("/conversation/{conversation_id}")
 def get_conversation(conversation_id: str):
-    """Retorna info sobre uma conversa específica"""
-    if conversation_id not in chat_sessions:
+    """Retorna histórico completo de uma conversa"""
+    if conversation_id not in conversations:
         return {"error": "conversa não encontrada"}, 404
     
-    session = chat_sessions[conversation_id]
-    state = conversation_states.get(conversation_id, {})
-    
-    # Extrai histórico da sessão
-    history = [
+    history = conversations[conversation_id]
+    history_formatted = [
         {
             "role": content.role,
             "text": content.parts[0].text if content.parts else ""
         }
-        for content in session.history
+        for content in history
     ]
     
     return {
         "conversation_id": conversation_id,
-        "history": history,
-        "message_count": len(history),
-        "session_info": state
+        "history": history_formatted,
+        "message_count": len(history)
     }
 
 
 @app.delete("/conversation/{conversation_id}")
 def delete_conversation(conversation_id: str):
-    """Deleta uma conversa do histórico"""
-    if conversation_id not in chat_sessions:
+    """Deleta uma conversa"""
+    if conversation_id not in conversations:
         return {"error": "conversa não encontrada"}, 404
     
-    del chat_sessions[conversation_id]
-    if conversation_id in conversation_states:
-        del conversation_states[conversation_id]
-    return {"status": "conversa deletada"}
+    del conversations[conversation_id]
+    return {"status": "conversa deletada", "conversation_id": conversation_id}
 
 
 @app.get("/conversations")
 def list_conversations():
-    """Lista todas as conversas em memória"""
+    """Lista todas as conversas ativas"""
     return {
-        "total_conversations": len(chat_sessions),
+        "total_conversations": len(conversations),
         "conversations": [
             {
                 "conversation_id": cid,
-                "message_count": len(session.history),
-                "info": conversation_states.get(cid, {})
+                "message_count": len(history)
             }
-            for cid, session in chat_sessions.items()
+            for cid, history in conversations.items()
         ]
     }
 
@@ -380,34 +371,28 @@ def chat(msg: Message):
         return {"error": "mensagem vazia"}, 400
     
     try:
-        # Cria ou obtém sessão de chat
+        # Cria ou obtém conversa
         conversation_id = msg.conversation_id or str(uuid.uuid4())
         
-        if conversation_id not in chat_sessions:
-            # Cria nova ChatSession para esta conversa
-            chat_sessions[conversation_id] = model.start_chat()
-            conversation_states[conversation_id] = {
-                "created_at": str(__import__('datetime').datetime.now()),
-                "message_count": 0
-            }
+        if conversation_id not in conversations:
+            conversations[conversation_id] = []
         
-        session = chat_sessions[conversation_id]
-        state = conversation_states[conversation_id]
+        history = conversations[conversation_id]
         
-        # DEBUG: Verificar histórico antes de enviar
-        print(f"\n=== DEBUG CHAT REQUEST ===")
-        print(f"Conversation ID: {conversation_id}")
-        print(f"Histórico antes (tamanho): {len(session.history)}")
-        for i, content in enumerate(session.history):
-            role = content.role
-            text = content.parts[0].text if content.parts else ""
-            print(f"  [{i}] {role}: {text[:50]}...")
+        # DEBUG
+        print(f"\n{'='*60}")
+        print(f"CONVERSATION_ID: {conversation_id}")
+        print(f"Histórico ANTES: {len(history)} items")
+        for i, content in enumerate(history):
+            text_preview = content.parts[0].text[:50] if content.parts else ""
+            print(f"  [{i}] {content.role}: {text_preview}...")
         print(f"Nova mensagem: {msg.text}")
-        print(f"=========================\n")
+        print(f"{'='*60}\n")
         
-        # send_message() do ChatSession
-        response = session.send_message(
+        # Chama modelo COM HISTÓRICO EXPLÍCITO
+        response = model.generate_content(
             msg.text,
+            history=history,  # ✅ Passa histórico completo
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
@@ -436,20 +421,21 @@ def chat(msg: Message):
         
         response_text = response.text
         
-        # DEBUG: Verificar histórico depois
-        print(f"\n=== DEBUG AFTER RESPONSE ===")
-        print(f"Histórico depois (tamanho): {len(session.history)}")
-        for i, content in enumerate(session.history):
-            role = content.role
-            text = content.parts[0].text if content.parts else ""
-            print(f"  [{i}] {role}: {text[:50]}...")
-        print(f"Resposta: {response_text[:100]}...")
-        print(f"============================\n")
+        # ✅ Salva user message no histórico
+        history.append(Content(role="user", parts=[Part.from_text(msg.text)]))
+        # ✅ Salva model response no histórico
+        history.append(Content(role="model", parts=[Part.from_text(response_text)]))
         
-        # Atualiza contador
-        state["message_count"] += 2  # user + model
+        # DEBUG
+        print(f"{'='*60}")
+        print(f"Histórico DEPOIS: {len(history)} items")
+        for i, content in enumerate(history):
+            text_preview = content.parts[0].text[:50] if content.parts else ""
+            print(f"  [{i}] {content.role}: {text_preview}...")
+        print(f"Resposta do modelo: {response_text[:100]}...")
+        print(f"{'='*60}\n")
         
-        # Detecciona se o bot pediu clarificação
+        # Detecciona se pediu clarificação
         is_asking_clarification = any(keyword in response_text.lower() for keyword in [
             "esclareça", "clarify", "qual é exatamente", "qual é o seu", "você quer dizer",
             "pode ser mais específico", "pode detalhar", "qual delas", "qual opção",
@@ -461,8 +447,7 @@ def chat(msg: Message):
             "conversation_id": conversation_id,
             "corpus": corpus.display_name,
             "asking_clarification": is_asking_clarification,
-            "history_length": len(session.history),
-            "message_count": state["message_count"]
+            "history_length": len(history)
         }
     except Exception as e:
         import traceback
