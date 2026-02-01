@@ -385,9 +385,6 @@ def chat(msg: Message):
         
         if conversation_id not in chat_sessions:
             # Cria nova ChatSession para esta conversa
-            # ChatSession é context-aware: mantém histórico automaticamente
-            # e passa para modelo em cada send_message()
-            # Referência: https://cloud.google.com/docs/generative-ai/get-started-python
             chat_sessions[conversation_id] = model.start_chat()
             conversation_states[conversation_id] = {
                 "created_at": str(__import__('datetime').datetime.now()),
@@ -397,11 +394,18 @@ def chat(msg: Message):
         session = chat_sessions[conversation_id]
         state = conversation_states[conversation_id]
         
-        # send_message() do ChatSession:
-        # - Automaticamente passa session.history ao modelo (context-aware)
-        # - Atualiza session.history com user message e model response
-        # - Não requer passar history manualmente
-        # - Melhor que generate_content() para conversas multi-turn
+        # DEBUG: Verificar histórico antes de enviar
+        print(f"\n=== DEBUG CHAT REQUEST ===")
+        print(f"Conversation ID: {conversation_id}")
+        print(f"Histórico antes (tamanho): {len(session.history)}")
+        for i, content in enumerate(session.history):
+            role = content.role
+            text = content.parts[0].text if content.parts else ""
+            print(f"  [{i}] {role}: {text[:50]}...")
+        print(f"Nova mensagem: {msg.text}")
+        print(f"=========================\n")
+        
+        # send_message() do ChatSession
         response = session.send_message(
             msg.text,
             generation_config={
@@ -431,6 +435,16 @@ def chat(msg: Message):
         )
         
         response_text = response.text
+        
+        # DEBUG: Verificar histórico depois
+        print(f"\n=== DEBUG AFTER RESPONSE ===")
+        print(f"Histórico depois (tamanho): {len(session.history)}")
+        for i, content in enumerate(session.history):
+            role = content.role
+            text = content.parts[0].text if content.parts else ""
+            print(f"  [{i}] {role}: {text[:50]}...")
+        print(f"Resposta: {response_text[:100]}...")
+        print(f"============================\n")
         
         # Atualiza contador
         state["message_count"] += 2  # user + model
