@@ -1,12 +1,10 @@
 import os
 import json
-import tempfile
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from google.auth import default as google_auth_default
 
 load_dotenv()
 
@@ -17,46 +15,21 @@ PORT = int(os.getenv("PORT", 8000))
 # Configura credenciais do Google Cloud de forma segura
 def setup_google_credentials():
     """Setup Google Cloud credentials de forma segura"""
-    # 1. Tenta usar credenciais como JSON na variável de ambiente (Railway/Cloud)
-    creds_json_str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-    if creds_json_str:
-        try:
-            # Valida se é um JSON válido
-            creds_dict = json.loads(creds_json_str)
-            
-            # Cria arquivo temporário persistente
-            creds_dir = "/tmp/gcloud"
-            os.makedirs(creds_dir, exist_ok=True)
-            creds_file = os.path.join(creds_dir, "credentials.json")
-            
-            # Escreve JSON em arquivo
-            with open(creds_file, 'w') as f:
-                json.dump(creds_dict, f)
-            
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_file
-            print(f"✓ Credenciais carregadas de variável de ambiente")
-            return True
-        except json.JSONDecodeError:
-            print(f"✗ GOOGLE_APPLICATION_CREDENTIALS_JSON não é um JSON válido")
-        except Exception as e:
-            print(f"✗ Erro ao processar GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
-    
-    # 2. Tenta usar arquivo local (desenvolvimento)
+    # Tenta arquivo local primeiro (desenvolvimento e railway)
     local_creds = "./serhrag-d481c39ed083.json"
     if os.path.exists(local_creds):
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = local_creds
         print(f"✓ Credenciais carregadas do arquivo local")
         return True
     
-    # 3. Tenta usar credenciais padrão do Google (gcloud CLI, etc)
-    try:
-        credentials, project_id = google_auth_default()
-        print(f"✓ Credenciais padrão do Google Cloud detectadas")
+    # Também tenta em /app (railway container)
+    railway_creds = "/app/serhrag-d481c39ed083.json"
+    if os.path.exists(railway_creds):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = railway_creds
+        print(f"✓ Credenciais carregadas do Railway")
         return True
-    except:
-        pass
     
-    print("✗ Nenhum método de autenticação Google Cloud configurado")
+    print("✗ Arquivo de credenciais não encontrado")
     return False
 
 setup_google_credentials()
