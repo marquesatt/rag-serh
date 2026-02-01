@@ -82,12 +82,18 @@ def init_vertex_ai():
         print(f"Listando corpora disponíveis...")
         corpora = list(rag.list_corpora())
         print(f"Corpora encontrados: {len(corpora)}")
-        for corpus_item in corpora:
-            print(f"  - {corpus_item.display_name} (ID: {corpus_item.name})")
         
-        if corpora:
-            corpus = corpora[0]
-            print(f"✓ Corpus carregado: {corpus.display_name}")
+        # Encontra corpus com arquivos (não vazio)
+        corpus = None
+        for corpus_item in corpora:
+            files = list(rag.list_files(corpus_name=corpus_item.name))
+            print(f"  - {corpus_item.display_name}: {len(files)} arquivo(s) (ID: {corpus_item.name})")
+            if files and not corpus:  # Pega primeiro corpus com arquivos
+                corpus = corpus_item
+                print(f"     ✓ Usando este corpus (tem {len(files)} arquivo)")
+        
+        if corpus:
+            print(f"\n✓ Corpus carregado: {corpus.display_name}")
             
             # configura rag retrieval
             config = rag.RagRetrievalConfig(
