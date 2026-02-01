@@ -14,39 +14,32 @@ PORT = int(os.getenv("PORT", 8000))
 
 # Configura credenciais do Google Cloud de forma segura
 def setup_google_credentials():
-    """Setup Google Cloud credentials usando gcloud CLI"""
-    import subprocess
+    """Setup Google Cloud credentials usando variável de ambiente"""
+    import tempfile
     
-    # Tenta variável de ambiente (produção - Railway)
-    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    # 1. Tenta usar variável de ambiente (produção e desenvolvimento)
+    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
     if creds_json:
         try:
-            creds_file = "/tmp/credentials.json"
-            with open(creds_file, "w") as f:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                 f.write(creds_json)
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_file
-            print(f"✓ Credenciais salvas em {creds_file}")
-            
-            # Autentica com gcloud CLI
-            result = subprocess.run(
-                ["gcloud", "auth", "activate-service-account", f"--key-file={creds_file}"],
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                print(f"✓ gcloud CLI autenticado com sucesso")
-                return True
-            else:
-                print(f"✗ Erro ao autenticar gcloud: {result.stderr}")
-                return False
-        except FileNotFoundError:
-            print("✗ gcloud CLI não encontrado. Certifique-se que está instalado no Dockerfile")
-            return False
+                temp_creds_path = f.name
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_creds_path
+            print(f"✓ Credenciais carregadas da variável de ambiente")
+            return
         except Exception as e:
-            print(f"✗ Erro ao processar credenciais: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+            print(f"✗ Erro ao processar GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
+    
+    # 2. Tenta arquivo local como fallback (desenvolvimento)
+    import glob
+    json_files = glob.glob("./serhrag*.json")
+    if json_files:
+        local_creds = json_files[0]
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = local_creds
+        print(f"✓ Credenciais carregadas do arquivo local: {local_creds}")
+        return
+    
+    print("✗ Nenhuma credencial encontrada")
     
     # Tenta arquivo local (desenvolvimento)
     local_creds = "./serhrag-d481c39ed083.json"
