@@ -1,10 +1,12 @@
 import os
 import json
+import uuid
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+from typing import Optional
 
 load_dotenv()
 
@@ -281,9 +283,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+# Armazena histórico de conversas em memória
+conversations = {}  # {conversation_id: [{"role": "user"|"model", "text": "..."}, ...]}
+
 
 class Message(BaseModel):
     text: str
+    conversation_id: Optional[str] = None  # Se None, cria uma nova conversa
+
+
+class ChatResponse(BaseModel):
+    response: str
+    conversation_id: str
+    corpus: str
+    asking_clarification: bool
 
 
 @app.get("/")
@@ -297,6 +310,44 @@ def health():
     return {"status": status, "corpus": corpus.display_name if corpus else None}
 
 
+@app.get("/conversation/{conversation_id}")
+def get_conversation(conversation_id: str):
+    """Retorna histórico de uma conversa específica"""
+    if conversation_id not in conversations:
+        return {"error": "conversa não encontrada"}, 404
+    
+    return {
+        "conversation_id": conversation_id,
+        "history": conversations[conversation_id],
+        "message_count": len(conversations[conversation_id])
+    }
+
+
+@app.delete("/conversation/{conversation_id}")
+def delete_conversation(conversation_id: str):
+    """Deleta uma conversa do histórico"""
+    if conversation_id not in conversations:
+        return {"error": "conversa não encontrada"}, 404
+    
+    del conversations[conversation_id]
+    return {"status": "conversa deletada"}
+
+
+@app.get("/conversations")
+def list_conversations():
+    """Lista todas as conversas em memória com contagem de mensagens"""
+    return {
+        "total_conversations": len(conversations),
+        "conversations": [
+            {
+                "conversation_id": cid,
+                "message_count": len(history)
+            }
+            for cid, history in conversations.items()
+        ]
+    }
+
+
 @app.post("/chat")
 def chat(msg: Message):
     if not model or not corpus:
@@ -306,10 +357,58 @@ def chat(msg: Message):
         return {"error": "mensagem vazia"}, 400
     
     try:
-        response = model.generate_content(msg.text)
+        # Cria ou obtém conversa
+        conversation_id = msg.conversation_id or str(uuid.uuid4())
+        if conversation_id not in conversations:
+            conversations[conversation_id] = []
+        
+        history = conversations[conversation_id]
+        
+        # Prepara histórico para enviar ao modelo
+        # O Gemini espera formato: [Content(role="user", parts=[Part(text="...")]), ...]
+        history_for_model = []
+        for msg_item in history:
+            history_for_model.append({
+                "role": msg_item["role"],
+                "parts": [{"text": msg_item["text"]}]
+            })
+        
+        # Gera resposta com histórico
+        response = model.generate_content(
+            msg.text,
+            generation_config={
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "top_k": 40,
+                "max_output_tokens": 1024,
+            },
+            safety_settings=[
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+                },
+            ]
+        )
+        
         response_text = response.text
         
-        # Detecciona se o bot pediu clarificação (bom sinal)
+        # Adiciona mensagens ao histórico
+        history.append({"role": "user", "text": msg.text})
+        history.append({"role": "model", "text": response_text})
+        
+        # Detecciona se o bot pediu clarificação
         is_asking_clarification = any(keyword in response_text.lower() for keyword in [
             "esclareça", "clarify", "qual é exatamente", "qual é o seu", "você quer dizer",
             "pode ser mais específico", "pode detalhar", "qual delas", "qual opção",
@@ -318,6 +417,7 @@ def chat(msg: Message):
         
         return {
             "response": response_text, 
+            "conversation_id": conversation_id,
             "corpus": corpus.display_name,
             "asking_clarification": is_asking_clarification
         }
