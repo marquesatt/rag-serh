@@ -1,6 +1,5 @@
 import os
 import json
-import tempfile
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,36 +14,51 @@ PORT = int(os.getenv("PORT", 8000))
 
 # Configura credenciais do Google Cloud de forma segura
 def setup_google_credentials():
-    """Setup Google Cloud credentials de forma segura"""
-    # 1. Tenta usar credenciais como JSON na variável de ambiente (Railway/Cloud)
-    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+    """Setup Google Cloud credentials usando gcloud CLI"""
+    import subprocess
+    
+    # Tenta variável de ambiente (produção - Railway)
+    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
     if creds_json:
         try:
-            # Escreve em arquivo temporário
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            creds_file = "/tmp/credentials.json"
+            with open(creds_file, "w") as f:
                 f.write(creds_json)
-                temp_creds_path = f.name
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_creds_path
-            print(f"✓ Credenciais carregadas de variável de ambiente")
-            return
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_file
+            print(f"✓ Credenciais salvas em {creds_file}")
+            
+            # Autentica com gcloud CLI
+            result = subprocess.run(
+                ["gcloud", "auth", "activate-service-account", f"--key-file={creds_file}"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                print(f"✓ gcloud CLI autenticado com sucesso")
+                return True
+            else:
+                print(f"✗ Erro ao autenticar gcloud: {result.stderr}")
+                return False
+        except FileNotFoundError:
+            print("✗ gcloud CLI não encontrado. Certifique-se que está instalado no Dockerfile")
+            return False
         except Exception as e:
-            print(f"Aviso: Não foi possível usar GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
+            print(f"✗ Erro ao processar credenciais: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
-    # 2. Tenta usar arquivo local (desenvolvimento) - procura por qualquer arquivo .json
-    import glob
-    json_files = glob.glob("./serhrag*.json")
-    if json_files:
-        local_creds = json_files[0]
+    # Tenta arquivo local (desenvolvimento)
+    local_creds = "./serhrag-d481c39ed083.json"
+    if os.path.exists(local_creds):
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = local_creds
-        print(f"✓ Credenciais carregadas do arquivo local: {local_creds}")
-        return
+        print(f"✓ Credenciais carregadas do arquivo local")
+        return True
     
-    # 3. Tenta GOOGLE_APPLICATION_CREDENTIALS direto
-    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-        print(f"✓ Credenciais definidas em GOOGLE_APPLICATION_CREDENTIALS")
-        return
-    
-    print("⚠ Nenhum método de autenticação Google Cloud configurado")
+    print("✗ Nenhuma credencial encontrada")
+    print("   Para Railway: configure GOOGLE_CREDENTIALS_JSON nas variáveis de ambiente")
+    print("   Para desenvolvimento local: adicione serhrag-d481c39ed083.json")
+    return False
 
 setup_google_credentials()
 
@@ -61,11 +75,17 @@ def init_vertex_ai():
         from vertexai.generative_models import GenerativeModel, Tool
         
         # autentica com google cloud
+        print(f"Inicializando Vertex AI com PROJECT_ID={PROJECT_ID}, LOCATION={LOCATION}")
         vertexai.init(project=PROJECT_ID, location=LOCATION)
         print(f"✓ Vertex AI inicializado")
         
         # carrega corpus
+        print(f"Listando corpora disponíveis...")
         corpora = list(rag.list_corpora())
+        print(f"Corpora encontrados: {len(corpora)}")
+        for corpus_item in corpora:
+            print(f"  - {corpus_item.display_name} (ID: {corpus_item.name})")
+        
         if corpora:
             corpus = corpora[0]
             print(f"✓ Corpus carregado: {corpus.display_name}")
@@ -182,7 +202,11 @@ Se alguém perguntar algo fora do escopo do SERH e RH:
             print(f"✓ Modelo Gemini pronto")
             return True
         else:
-            print("⚠ Nenhum corpus encontrado")
+            print("✗ NENHUM CORPUS ENCONTRADO NO GOOGLE CLOUD")
+            print(f"   Verifique:")
+            print(f"   - Se PROJECT_ID está correto: {PROJECT_ID}")
+            print(f"   - Se LOCATION está correta: {LOCATION}")
+            print(f"   - Se o corpus foi criado no Google Cloud RAG")
             return False
     except Exception as e:
         print(f"✗ Erro ao inicializar: {e}")
