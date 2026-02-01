@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+from google.auth import default as google_auth_default
 
 load_dotenv()
 
@@ -17,32 +18,46 @@ PORT = int(os.getenv("PORT", 8000))
 def setup_google_credentials():
     """Setup Google Cloud credentials de forma segura"""
     # 1. Tenta usar credenciais como JSON na variável de ambiente (Railway/Cloud)
-    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-    if creds_json:
+    creds_json_str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+    if creds_json_str:
         try:
-            # Escreve em arquivo temporário
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                f.write(creds_json)
-                temp_creds_path = f.name
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_creds_path
+            # Valida se é um JSON válido
+            creds_dict = json.loads(creds_json_str)
+            
+            # Cria arquivo temporário persistente
+            creds_dir = "/tmp/gcloud"
+            os.makedirs(creds_dir, exist_ok=True)
+            creds_file = os.path.join(creds_dir, "credentials.json")
+            
+            # Escreve JSON em arquivo
+            with open(creds_file, 'w') as f:
+                json.dump(creds_dict, f)
+            
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_file
             print(f"✓ Credenciais carregadas de variável de ambiente")
-            return
+            return True
+        except json.JSONDecodeError:
+            print(f"✗ GOOGLE_APPLICATION_CREDENTIALS_JSON não é um JSON válido")
         except Exception as e:
-            print(f"Aviso: Não foi possível usar GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
+            print(f"✗ Erro ao processar GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
     
     # 2. Tenta usar arquivo local (desenvolvimento)
     local_creds = "./serhrag-d481c39ed083.json"
     if os.path.exists(local_creds):
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = local_creds
         print(f"✓ Credenciais carregadas do arquivo local")
-        return
+        return True
     
-    # 3. Tenta GOOGLE_APPLICATION_CREDENTIALS direto
-    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-        print(f"✓ Credenciais definidas em GOOGLE_APPLICATION_CREDENTIALS")
-        return
+    # 3. Tenta usar credenciais padrão do Google (gcloud CLI, etc)
+    try:
+        credentials, project_id = google_auth_default()
+        print(f"✓ Credenciais padrão do Google Cloud detectadas")
+        return True
+    except:
+        pass
     
-    print("⚠ Nenhum método de autenticação Google Cloud configurado")
+    print("✗ Nenhum método de autenticação Google Cloud configurado")
+    return False
 
 setup_google_credentials()
 
