@@ -3,3 +3,7 @@ uvicorn[standard]
 pydantic
 google-cloud-aiplatform
 python-dotenv
+langgraph
+langchain
+langchain-google-vertexai
+vertexai
