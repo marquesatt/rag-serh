@@ -4,6 +4,7 @@ import uuid
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from typing import Optional
@@ -304,7 +305,10 @@ def chat(msg: Message):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return {"error": str(e)}, 500
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "conversation_id": msg.conversation_id}
+        )
 
 
 if __name__ == "__main__":
