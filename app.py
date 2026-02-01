@@ -188,6 +188,11 @@ def startup():
     """Inicializa o agente na startup da aplicação"""
     global agent
     try:
+        print(f"Iniciando agente...")
+        print(f"  Project: {PROJECT_ID}")
+        print(f"  Location: {LOCATION}")
+        print(f"  Corpus ID: {CORPUS_ID}")
+        
         agent = create_serh_agent()
         print("✓ Agente SERH LangGraph inicializado com sucesso")
         print(f"  Modelo: gemini-2.0-flash")
@@ -197,6 +202,11 @@ def startup():
         print(f"✗ Erro ao inicializar agente: {e}")
         import traceback
         traceback.print_exc()
+        print(f"\nDica: Verifique se as variáveis de ambiente estão configuradas:")
+        print(f"  - GCP_PROJECT_ID={PROJECT_ID}")
+        print(f"  - GCP_LOCATION={LOCATION}")
+        print(f"  - CORPUS_ID={CORPUS_ID}")
+        print(f"  - Google Cloud credentials configuradas")
 
 # ============================================================================
 # ENDPOINTS
