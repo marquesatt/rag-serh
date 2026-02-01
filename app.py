@@ -7,7 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from typing import Optional
-from vertexai.generative_models import SafetySetting, HarmCategory, HarmBlockThreshold
+from vertexai.generative_models import (
+    SafetySetting, HarmCategory, HarmBlockThreshold,
+    Content, Part
+)
 
 load_dotenv()
 
@@ -284,8 +287,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Armazena ChatSession por conversation_id para manter contexto
-chat_sessions = {}  # {conversation_id: ChatSession}
+# Armazena histórico de conversas em memória (usando Content objects do Vertex AI)
+conversations = {}  # {conversation_id: [Content(role="user|model", parts=[Part(text="...")])}
 
 
 class Message(BaseModel):
@@ -314,16 +317,15 @@ def health():
 @app.get("/conversation/{conversation_id}")
 def get_conversation(conversation_id: str):
     """Retorna histórico de uma conversa específica"""
-    if conversation_id not in chat_sessions:
+    if conversation_id not in conversations:
         return {"error": "conversa não encontrada"}, 404
     
-    session = chat_sessions[conversation_id]
     history = [
         {
-            "role": msg.role,
-            "text": msg.parts[0].text if msg.parts else ""
+            "role": content.role,
+            "text": content.parts[0].text if content.parts else ""
         }
-        for msg in session.history
+        for content in conversations[conversation_id]
     ]
     
     return {
@@ -336,10 +338,10 @@ def get_conversation(conversation_id: str):
 @app.delete("/conversation/{conversation_id}")
 def delete_conversation(conversation_id: str):
     """Deleta uma conversa do histórico"""
-    if conversation_id not in chat_sessions:
+    if conversation_id not in conversations:
         return {"error": "conversa não encontrada"}, 404
     
-    del chat_sessions[conversation_id]
+    del conversations[conversation_id]
     return {"status": "conversa deletada"}
 
 
@@ -347,13 +349,13 @@ def delete_conversation(conversation_id: str):
 def list_conversations():
     """Lista todas as conversas em memória com contagem de mensagens"""
     return {
-        "total_conversations": len(chat_sessions),
+        "total_conversations": len(conversations),
         "conversations": [
             {
                 "conversation_id": cid,
-                "message_count": len(session.history)
+                "message_count": len(history)
             }
-            for cid, session in chat_sessions.items()
+            for cid, history in conversations.items()
         ]
     }
 
@@ -367,19 +369,24 @@ def chat(msg: Message):
         return {"error": "mensagem vazia"}, 400
     
     try:
-        # Cria ou obtém sessão de chat
+        # Cria ou obtém conversa
         conversation_id = msg.conversation_id or str(uuid.uuid4())
         
-        if conversation_id not in chat_sessions:
-            # Cria nova ChatSession com context awareness automático
-            chat_sessions[conversation_id] = model.start_chat()
+        if conversation_id not in conversations:
+            conversations[conversation_id] = []
         
-        session = chat_sessions[conversation_id]
+        history = conversations[conversation_id]
         
-        # Envia mensagem com histórico automático
-        # ChatSession mantém o histórico internamente
-        response = session.send_message(
+        # Constrói lista de Content objects para o histórico
+        # Formato correto: [Content(role="user", parts=[...]), Content(role="model", parts=[...])]
+        history_content = list(history)  # Cópia do histórico
+        
+        # Gera resposta passando o histórico completo
+        response = model.generate_content(
+            # Mensagem atual
             msg.text,
+            # Passa o histórico para manter contexto
+            history=history_content,
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
@@ -407,6 +414,10 @@ def chat(msg: Message):
         )
         
         response_text = response.text
+        
+        # Adiciona mensagens ao histórico como Content objects
+        history.append(Content(role="user", parts=[Part.from_text(msg.text)]))
+        history.append(Content(role="model", parts=[Part.from_text(response_text)]))
         
         # Detecciona se o bot pediu clarificação
         is_asking_clarification = any(keyword in response_text.lower() for keyword in [
