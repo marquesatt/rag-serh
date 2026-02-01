@@ -30,11 +30,13 @@ def setup_google_credentials():
         except Exception as e:
             print(f"Aviso: Não foi possível usar GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
     
-    # 2. Tenta usar arquivo local (desenvolvimento)
-    local_creds = "./serhrag-d481c39ed083.json"
-    if os.path.exists(local_creds):
+    # 2. Tenta usar arquivo local (desenvolvimento) - procura por qualquer arquivo .json
+    import glob
+    json_files = glob.glob("./serhrag*.json")
+    if json_files:
+        local_creds = json_files[0]
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = local_creds
-        print(f"✓ Credenciais carregadas do arquivo local")
+        print(f"✓ Credenciais carregadas do arquivo local: {local_creds}")
         return
     
     # 3. Tenta GOOGLE_APPLICATION_CREDENTIALS direto
