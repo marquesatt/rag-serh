@@ -1,4 +1,6 @@
 import os
+import json
+import tempfile
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +12,39 @@ load_dotenv()
 PROJECT_ID = os.getenv("PROJECT_ID", "serhrag")
 LOCATION = os.getenv("LOCATION", "europe-west4")
 PORT = int(os.getenv("PORT", 8000))
+
+# Configura credenciais do Google Cloud de forma segura
+def setup_google_credentials():
+    """Setup Google Cloud credentials de forma segura"""
+    # 1. Tenta usar credenciais como JSON na variável de ambiente (Railway/Cloud)
+    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+    if creds_json:
+        try:
+            # Escreve em arquivo temporário
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                f.write(creds_json)
+                temp_creds_path = f.name
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_creds_path
+            print(f"✓ Credenciais carregadas de variável de ambiente")
+            return
+        except Exception as e:
+            print(f"Aviso: Não foi possível usar GOOGLE_APPLICATION_CREDENTIALS_JSON: {e}")
+    
+    # 2. Tenta usar arquivo local (desenvolvimento)
+    local_creds = "./serhrag-d481c39ed083.json"
+    if os.path.exists(local_creds):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = local_creds
+        print(f"✓ Credenciais carregadas do arquivo local")
+        return
+    
+    # 3. Tenta GOOGLE_APPLICATION_CREDENTIALS direto
+    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+        print(f"✓ Credenciais definidas em GOOGLE_APPLICATION_CREDENTIALS")
+        return
+    
+    print("⚠ Nenhum método de autenticação Google Cloud configurado")
+
+setup_google_credentials()
 
 corpus = None
 model = None
