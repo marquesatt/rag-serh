@@ -389,10 +389,14 @@ def chat(msg: Message):
         print(f"Nova mensagem: {msg.text}")
         print(f"{'='*60}\n")
         
-        # Chama modelo COM HISTÓRICO EXPLÍCITO
+        # Constrói conversa completa: histórico + nova mensagem do usuário
+        # generate_content() espera lista de Content objects
+        full_conversation = list(history)  # Cópia do histórico
+        full_conversation.append(Content(role="user", parts=[Part.from_text(msg.text)]))
+        
+        # Chama modelo COM HISTÓRICO COMPLETO como primeiro argumento
         response = model.generate_content(
-            msg.text,
-            history=history,  # ✅ Passa histórico completo
+            full_conversation,  # ✅ Passa conversa completa (histórico + nova msg)
             generation_config={
                 "temperature": 0.7,
                 "top_p": 0.95,
@@ -422,9 +426,11 @@ def chat(msg: Message):
         response_text = response.text
         
         # ✅ Salva user message no histórico
-        history.append(Content(role="user", parts=[Part.from_text(msg.text)]))
+        conversations[conversation_id].append(Content(role="user", parts=[Part.from_text(msg.text)]))
         # ✅ Salva model response no histórico
-        history.append(Content(role="model", parts=[Part.from_text(response_text)]))
+        conversations[conversation_id].append(Content(role="model", parts=[Part.from_text(response_text)]))
+        
+        history = conversations[conversation_id]  # Atualizar referência
         
         # DEBUG
         print(f"{'='*60}")
