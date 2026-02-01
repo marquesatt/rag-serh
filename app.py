@@ -284,8 +284,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Armazena histórico de conversas em memória
-conversations = {}  # {conversation_id: [{"role": "user"|"model", "text": "..."}, ...]}
+# Armazena ChatSession por conversation_id para manter contexto
+chat_sessions = {}  # {conversation_id: ChatSession}
 
 
 class Message(BaseModel):
@@ -314,23 +314,32 @@ def health():
 @app.get("/conversation/{conversation_id}")
 def get_conversation(conversation_id: str):
     """Retorna histórico de uma conversa específica"""
-    if conversation_id not in conversations:
+    if conversation_id not in chat_sessions:
         return {"error": "conversa não encontrada"}, 404
+    
+    session = chat_sessions[conversation_id]
+    history = [
+        {
+            "role": msg.role,
+            "text": msg.parts[0].text if msg.parts else ""
+        }
+        for msg in session.history
+    ]
     
     return {
         "conversation_id": conversation_id,
-        "history": conversations[conversation_id],
-        "message_count": len(conversations[conversation_id])
+        "history": history,
+        "message_count": len(history)
     }
 
 
 @app.delete("/conversation/{conversation_id}")
 def delete_conversation(conversation_id: str):
     """Deleta uma conversa do histórico"""
-    if conversation_id not in conversations:
+    if conversation_id not in chat_sessions:
         return {"error": "conversa não encontrada"}, 404
     
-    del conversations[conversation_id]
+    del chat_sessions[conversation_id]
     return {"status": "conversa deletada"}
 
 
@@ -338,13 +347,13 @@ def delete_conversation(conversation_id: str):
 def list_conversations():
     """Lista todas as conversas em memória com contagem de mensagens"""
     return {
-        "total_conversations": len(conversations),
+        "total_conversations": len(chat_sessions),
         "conversations": [
             {
                 "conversation_id": cid,
-                "message_count": len(history)
+                "message_count": len(session.history)
             }
-            for cid, history in conversations.items()
+            for cid, session in chat_sessions.items()
         ]
     }
 
@@ -358,24 +367,18 @@ def chat(msg: Message):
         return {"error": "mensagem vazia"}, 400
     
     try:
-        # Cria ou obtém conversa
+        # Cria ou obtém sessão de chat
         conversation_id = msg.conversation_id or str(uuid.uuid4())
-        if conversation_id not in conversations:
-            conversations[conversation_id] = []
         
-        history = conversations[conversation_id]
+        if conversation_id not in chat_sessions:
+            # Cria nova ChatSession com context awareness automático
+            chat_sessions[conversation_id] = model.start_chat()
         
-        # Prepara histórico para enviar ao modelo
-        # O Gemini espera formato: [Content(role="user", parts=[Part(text="...")]), ...]
-        history_for_model = []
-        for msg_item in history:
-            history_for_model.append({
-                "role": msg_item["role"],
-                "parts": [{"text": msg_item["text"]}]
-            })
+        session = chat_sessions[conversation_id]
         
-        # Gera resposta com histórico
-        response = model.generate_content(
+        # Envia mensagem com histórico automático
+        # ChatSession mantém o histórico internamente
+        response = session.send_message(
             msg.text,
             generation_config={
                 "temperature": 0.7,
@@ -405,10 +408,6 @@ def chat(msg: Message):
         
         response_text = response.text
         
-        # Adiciona mensagens ao histórico
-        history.append({"role": "user", "text": msg.text})
-        history.append({"role": "model", "text": response_text})
-        
         # Detecciona se o bot pediu clarificação
         is_asking_clarification = any(keyword in response_text.lower() for keyword in [
             "esclareça", "clarify", "qual é exatamente", "qual é o seu", "você quer dizer",
@@ -423,6 +422,8 @@ def chat(msg: Message):
             "asking_clarification": is_asking_clarification
         }
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}, 500
 
 
