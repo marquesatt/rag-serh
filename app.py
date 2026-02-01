@@ -15,7 +15,20 @@ PORT = int(os.getenv("PORT", 8000))
 # Configura credenciais do Google Cloud de forma segura
 def setup_google_credentials():
     """Setup Google Cloud credentials de forma segura"""
-    # Tenta arquivo local primeiro (desenvolvimento e railway)
+    # Tenta variável de ambiente primeiro (produção - Railway)
+    creds_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if creds_json:
+        try:
+            creds_file = "/tmp/credentials.json"
+            with open(creds_file, "w") as f:
+                f.write(creds_json)
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_file
+            print(f"✓ Credenciais carregadas da variável de ambiente")
+            return True
+        except Exception as e:
+            print(f"✗ Erro ao processar variável de ambiente: {e}")
+    
+    # Tenta arquivo local (desenvolvimento)
     local_creds = "./serhrag-d481c39ed083.json"
     if os.path.exists(local_creds):
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = local_creds
@@ -47,11 +60,17 @@ def init_vertex_ai():
         from vertexai.generative_models import GenerativeModel, Tool
         
         # autentica com google cloud
+        print(f"Inicializando Vertex AI com PROJECT_ID={PROJECT_ID}, LOCATION={LOCATION}")
         vertexai.init(project=PROJECT_ID, location=LOCATION)
         print(f"✓ Vertex AI inicializado")
         
         # carrega corpus
+        print(f"Listando corpora disponíveis...")
         corpora = list(rag.list_corpora())
+        print(f"Corpora encontrados: {len(corpora)}")
+        for corpus_item in corpora:
+            print(f"  - {corpus_item.display_name} (ID: {corpus_item.name})")
+        
         if corpora:
             corpus = corpora[0]
             print(f"✓ Corpus carregado: {corpus.display_name}")
@@ -168,7 +187,11 @@ Se alguém perguntar algo fora do escopo do SERH e RH:
             print(f"✓ Modelo Gemini pronto")
             return True
         else:
-            print("⚠ Nenhum corpus encontrado")
+            print("✗ NENHUM CORPUS ENCONTRADO NO GOOGLE CLOUD")
+            print(f"   Verifique:")
+            print(f"   - Se PROJECT_ID está correto: {PROJECT_ID}")
+            print(f"   - Se LOCATION está correta: {LOCATION}")
+            print(f"   - Se o corpus foi criado no Google Cloud RAG")
             return False
     except Exception as e:
         print(f"✗ Erro ao inicializar: {e}")
