@@ -1,6 +1,6 @@
 # Arquivo de entrada para Railway
 # Railway procura por main.py ou wsgi.py por padrão
-from app import app, model, corpus
+from app import app
 
 if __name__ == "__main__":
     import uvicorn
