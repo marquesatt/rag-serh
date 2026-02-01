@@ -202,6 +202,22 @@ def startup():
 # ENDPOINTS
 # ============================================================================
 
+@app.get("/")
+def root():
+    """Rota raiz - mostra status da API"""
+    return {
+        "name": "SERH RAG Chatbot",
+        "version": "3.0-oficial",
+        "status": "ok" if agent else "initializing",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "chat": "/chat",
+            "conversation": "/conversation/{id}",
+            "conversations": "/conversations"
+        }
+    }
+
 @app.get("/health")
 def health():
     """Health check do serviço"""
